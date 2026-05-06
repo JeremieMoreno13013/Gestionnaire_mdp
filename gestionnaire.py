@@ -4,7 +4,7 @@ from utils.crypto import chiffrer, dechiffrer
 from utils.stockage import ajouter_compte_data, recuperer_comptes, supprimer_donnees_compte, site_existe
 
 
-def creer_champ(parent, texte, secret=False):
+def creer_champ(parent, texte, secret=False, generable=False):
     """Crée un label + un champ de saisie et retourne le champ"""
 
     tk.Label(
@@ -53,6 +53,27 @@ def creer_champ(parent, texte, secret=False):
             command=toggle
         )
         btn_revealer.pack(side="right", padx=(5, 0))
+
+    if generable:
+        def generer():
+            from utils.generateur import generer_mdp
+            mdp = generer_mdp()
+            champ.delete(0, tk.END)
+            champ.insert(0, mdp)
+
+            if secret and not champ.visible:
+                toggle()
+
+        btn_generer = tk.Button(
+            frame_champ,
+            text="🎲",
+            bg="#2e7d32",
+            fg="white",
+            bd=0,
+            cursor="hand2",
+            command=generer
+        )
+        btn_generer.pack(side="right", padx=(0, 5))
 
     return champ
 
@@ -193,7 +214,7 @@ class FenetreGestionnaire:
 
         self.champ_site = creer_champ(frame_form, "🌐 Site")
         self.champ_identifiant = creer_champ(frame_form, "👤 Identifiant")
-        self.champ_mot_de_passe = creer_champ(frame_form, "🔐 Mot de passe", secret=True)
+        self.champ_mot_de_passe = creer_champ(frame_form, "🔐 Mot de passe", secret=True, generable=True)
 
         # Bouton Sauvegarder
         btn_sauvegarder = tk.Button(
@@ -388,7 +409,7 @@ class FenetreGestionnaire:
 
         self.champ_site = creer_champ(frame_form, "🌐 Site")
         self.champ_identifiant = creer_champ(frame_form, "👤 Identifiant")
-        self.champ_mot_de_passe = creer_champ(frame_form, "🔐 Mot de passe", secret=True)
+        self.champ_mot_de_passe = creer_champ(frame_form, "🔐 Mot de passe", secret=True, generable=True)
 
         # Remplir avec les données actuelles
         self.champ_site.insert(0, site)
