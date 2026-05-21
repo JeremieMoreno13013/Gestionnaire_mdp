@@ -1,193 +1,164 @@
-import tkinter as tk
+import flet as ft
+from utils.theme import *
 from utils.crypto import hasher_mdp_maitre, generer_cle
-from utils.stockage import initialiser_coffre, recuperer_mdp_maitre, sauvegarder_mdp_maitre
+from utils.stockage import initialiser_coffre, sauvegarder_mdp_maitre, recuperer_mdp_maitre
 
-class FenetreConnexion:
-    def __init__(self):
-        # Initialiser le coffre (crée le fichier si besoin)
-        self.premiere_connexion = initialiser_coffre()
-        
-        # Créer la fenêtre principale
-        self.fenetre = tk.Tk()
-        self.fenetre.title("Gestionnaire de mots de passe - Connexion")
-        self.fenetre.geometry("400x500")
-        self.fenetre.resizable(False, False)
-        self.fenetre.configure(bg="#f0f0f0")
-        
-        # Centre la fenêtre
-        self.centrer_fenetre(400, 500)
+def page_connexion(page: ft.Page):
+    page.title = APP_NOM
+    page.bgcolor = FOND_PAGE
+    page.window.width = FENETRE_LARGEUR_CONNEXION
+    page.window.height = FENETRE_HAUTEUR_CONNEXION
+    page.window.resizable = False
+    page.vertical_alignment = ft.MainAxisAlignment.CENTER
+    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
 
-        # Construis l'interface
-        self.creer_widgets()
+    premiere_fois = initialiser_coffre()
 
-        #La clé de chiffrement (sera définie après connexion)
-        self.cle = None
+    import os
+    chemin_logo = os.path.join("assets", "logo.png")
 
-    def centrer_fenetre(self, largeur, hauteur):
-        """Centre la fenêtre sur l'écran"""
-        ecran_largeur = self.fenetre.winfo_screenwidth()
-        ecran_hauteur = self.fenetre.winfo_screenheight()
-        pos_x = (ecran_largeur - largeur) // 2
-        pos_y = (ecran_hauteur - hauteur) // 2
-        self.fenetre.geometry(f"{largeur}x{hauteur}+{pos_x}+{pos_y}")
-
-    def creer_widgets(self):
-        """Crée les éléments visuels de la fenêtre"""
-        # LOGO + TITRE
-        cadre_titre = tk.Frame(self.fenetre, bg="#f0f0f0")
-        cadre_titre.pack(pady=40)
-
-        tk.Label(
-            cadre_titre,
-            text="🔐",
-            font=("Arial", 50),
-            bg="#1a1a2e"
-        ).pack()
-
-        tk.Label(
-            cadre_titre,
-            text="Gestionnaire de mot de passe",
-            font=("Arial", 18, "bold"),
-            bg="#1a1a2e",
-            fg="#ffffff"
-        ).pack()
-
-        tk.Label(
-            cadre_titre,
-            text="Créer votre coffre" if self.premiere_connexion else "Se connecter",
-            font=("Arial", 10),
-            bg="#1a1a2e",
-            fg="#ffffff"
-        ).pack(pady=5)
-
-        # === FORMULAIRE ===
-        cadre_formulaire = tk.Frame(self.fenetre, bg="#f0f0f0")
-        cadre_formulaire.pack(pady=10, padx=40, fill="x")
-
-        # Label pour le mot de passe maître
-        tk.Label(
-            cadre_formulaire,
-            text="Mot de passe maître :",
-            font=("Arial", 12),
-            bg="#f0f0f0",
-            fg="#1a1a2e",
-            anchor="w"
-        ).pack(fill="x", pady=(0, 5))
-
-        # Champ pour le mot de passe maître
-        self.champ_mdp = tk.Entry(
-            cadre_formulaire,
-            font=("Arial", 12),
-            show="*",
-            bg="#ffffff",
-            fg="#1a1a2e",
-            bd=2,
-            relief="solid",
-            insertbackground="#1a1a2e"
+    if os.path.exists(chemin_logo):
+        logo = ft.Image(
+            src=chemin_logo,
+            width=LOGO_CONNEXION_LARGEUR,
+            height=LOGO_CONNEXION_HAUTEUR,
         )
-        self.champ_mdp.pack(fill="x", ipady=5)
-        self.champ_mdp.focus() #focus automatique sur le champ
-        self.champ_mdp.bind("<Return>", lambda e: self.valider_connexion())
-
-        # Case afficher/cacher mdp
-        self.afficher_mdp = tk.BooleanVar()
-        tk.Checkbutton(
-            cadre_formulaire,
-            text="Afficher le mot de passe",
-            font=("Arial",10),
-            bg="#f0f0f0",
-            fg="#1a1a2e",
-            selectcolor="#f0f0f0",
-            variable=self.afficher_mdp,
-            command=self.toggle_mdp,
-            activebackground="#f0f0f0",
-            activeforeground="#1a1a2e"
-        ).pack(anchor="w", pady=(5,0))
-
-        #Bouton Valider
-        self.bouton_valider = tk.Button(
-            cadre_formulaire,
-            text="Créer mon coffre" if self.premiere_connexion else "Se connecter",
-            font=("Arial", 12, "bold"),
-            bg="#e94560",
-            fg="white",
-            activebackground="#1a1a2e",
-            activeforeground="#ffffff",
-            cursor="hand2",
-            bd=0,
-            relief="flat",
-            padx=20,
-            pady=10,
-            command=self.valider_connexion
+    else:
+        logo = ft.Icon(
+            ft.Icons.LOCK,
+            size=LOGO_CONNEXION_LARGEUR,
+            color=LOGO_COULEUR
         )
-        self.bouton_valider.pack(fill="x", pady=(20, 10), ipady=10)
 
-        # Effet survol
-        self.bouton_valider.bind("<Enter>", lambda e: self.bouton_valider.config(bg="#1a1a2e"))
-        self.bouton_valider.bind("<Leave>", lambda e: self.bouton_valider.config(bg="#e94560"))
+    titre = ft.Text(
+        APP_NOM,
+        size=TAILLE_TITRE,
+        weight=ft.FontWeight.BOLD,
+        color=TEXTE_PRINCIPAL,
+        text_align=ft.TextAlign.CENTER
+    )
 
-        # Message d'erreur/info
-        self.label_message = tk.Label(
-            cadre_formulaire,
-            text="⚠️ Choisissez bien votre mot de passe,\nil est impossible à récupérer !" if self.premiere_connexion else "",
-            font=("Arial",10),
-            fg="#a8a8b3",
-            bg="#1a1a2e",
-            justify="center",
+    sous_titre = ft.Text(
+        "Créer votre coffre" if premiere_fois else "Accéder à votre coffre",
+        size=TAILLE_SOUS_TITRE,
+        color=TEXTE_SECONDAIRE,
+        text_align=ft.TextAlign.CENTER
+    )
+
+    def champ_connexion(label: str) -> ft.TextField:
+        return ft.TextField(
+            label=label,
+            password=True,
+            can_reveal_password=True,
+            border_radius=ARRONDI_CHAMP,
+            prefix_icon=ft.Icons.KEY,
+            width=300,
+            filled=True,
+            bgcolor=FOND_CARTE,
+            color=TEXTE_PRINCIPAL,
+            border_color=TEXTE_TERTIAIRE,
+            label_style=ft.TextStyle(color=TEXTE_SECONDAIRE),
         )
-        self.label_message.pack(pady=(15, 0))           
-        
-    def toggle_mdp(self):
-        """Affiche ou cache le mot de passe"""
-        self.champ_mdp.config(show="" if self.afficher_mdp.get() else "*")
 
-    def valider_connexion(self):
-        """Valide le mot de passe maitre et ouvre le coffre ou affiche une erreur"""
-        mdp = self.champ_mdp.get()
+    champ_mdp = champ_connexion("Mot de passe maître")
+    champ_confirm = champ_connexion("Confirmer le mot de passe maître")
+    champ_confirm.visible = premiere_fois
+
+    message = ft.Text(
+        "",
+        size=TAILLE_PETIT,
+        color=COULEUR_DANGER,
+        text_align=ft.TextAlign.CENTER
+    )
+
+    def afficher_erreur(texte: str):
+        message.value = texte
+        message.color = COULEUR_DANGER
+        page.update()
+
+    def ouvrir_gestionnaire(cle):
+        page.clean()
+        from gestionnaire import page_gestionnaire
+        page_gestionnaire(page, cle)
+
+    def valider(e):
+        mdp = champ_mdp.value.strip()
+
         if not mdp:
-            self.afficher_erreur("⚠️ Entre ton mot de passe maître !")
+            afficher_erreur("Veuillez entrer votre mot de passe maître")
             return
+
         if len(mdp) < 6:
-            self.afficher_erreur("⚠️ Le mot de passe doit contenir au moins 6 caractères.")
+            afficher_erreur("6 caractères minimum")
             return
         
-        # === PREMIERE FOIS : création ===
-        if self.premiere_connexion:
-            # Génération des clés de chiffrement
+        if premiere_fois:
+            confirm = champ_confirm.value.strip()
+
+            if not confirm:
+                afficher_erreur("Veuillez confirmer votre mot de passe maître")
+                return
+            
+            if mdp != confirm:
+                champ_confirm.value=""
+                afficher_erreur("Les mots de passe ne correspondent pas")
+                return
+
             sauvegarder_mdp_maitre(hasher_mdp_maitre(mdp))
-            self.cle = generer_cle(mdp)
-            self.ouvrir_gestionnaire()
-
-        # === CONNEXION NORMALE : vérification ===
+            cle = generer_cle(mdp)
+            ouvrir_gestionnaire(cle)
         else:
-            hash_stocke = recuperer_mdp_maitre()
-            hash_saisi = hasher_mdp_maitre(mdp)
-
-            if hash_saisi == hash_stocke:
-                self.cle = generer_cle(mdp)
-                self.ouvrir_gestionnaire()
+            if hasher_mdp_maitre(mdp) == recuperer_mdp_maitre():
+                cle = generer_cle(mdp)
+                ouvrir_gestionnaire(cle)
             else:
-                self.afficher_erreur("⚠️ Mot de passe incorrect. Réessayez.")
-                self.champ_mdp.delete(0, tk.END)
-                self.champ_mdp.focus()
+                champ_mdp.value = ""
+                afficher_erreur("Mot de passe incorrect")
 
-    def afficher_erreur(self, message: str):
-        """Affiche un message d'erreur"""
-        self.label_message.config(text=message, fg="#e94560")
+    bouton = ft.ElevatedButton(
+        "Créer mon coffre" if premiere_fois else "Connexion",
+        width=300,
+        height=45,
+        color=TEXTE_PRINCIPAL,
+        bgcolor=COULEUR_PRIMAIRE,
+        on_click=valider
+    )
 
-    def ouvrir_gestionnaire(self):
-        """Ferme la fenêtre de connexion et ouvre le gestionnaire"""
-        self.fenetre.destroy()
+    champ_mdp.on_submit = valider
+    champ_confirm.on_submit = valider
 
-        from gestionnaire import FenetreGestionnaire
-        gestionnaire = FenetreGestionnaire(self.cle)
-        gestionnaire.lancer_app()
+    elements = [
+        logo,
+        titre,
+        sous_titre,
+        champ_mdp,
+    ]
 
-    def lancer_app(self):
-        """Lance l'application"""
-        self.fenetre.mainloop()
+    if premiere_fois:
+        elements.append(champ_confirm)
     
+    elements.extend([
+        bouton,
+        message,
+    ])
+    
+    if premiere_fois:
+        elements.append(
+            ft.Text(
+                "Choisissez bien votre mot de passe maître, il est impossible de le récupérer !",
+                size=TAILLE_NORMAL,
+                color=TEXTE_TERTIAIRE,
+                text_align=ft.TextAlign.CENTER,
+                width=300
+            )
+        )
 
-        
+    page.add(
+        ft.Column(
+            elements,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=10
+        )
+    )
             
         

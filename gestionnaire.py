@@ -1,472 +1,721 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
+import flet as ft
 from utils.crypto import chiffrer, dechiffrer
-from utils.stockage import ajouter_compte_data, recuperer_comptes, supprimer_donnees_compte, site_existe
+from utils.stockage import (
+    ajouter_compte_data,
+    recuperer_comptes,
+    supprimer_donnees_compte,
+    compte_existe,
+    reset_application,
+    generer_cle_compte
+)
+from utils.generateur import generer_mdp
+import os
+from PIL import Image
+import pyperclip
+from utils.theme import *
+from utils.recherche import calculer_score
 
-
-def creer_champ(parent, texte, secret=False, generable=False):
-    """Crée un label + un champ de saisie et retourne le champ"""
-
-    tk.Label(
-        parent,
-        text=texte,
-        font=("Arial", 11),
-        fg="#a8a8b3",
-        bg="#1a1a2e",
-        anchor="w"
-    ).pack(fill="x", pady=(10, 3))
-
-    frame_champ = tk.Frame(parent, bg="#1a1a2e")
-    frame_champ.pack(fill="x")
-
-    champ = tk.Entry(
-        frame_champ,
-        font=("Arial", 10),
-        bd=8,
-        fg="white",
-        bg="#16213e",
-        insertbackground="white",
-        relief="flat",
-        show="*" if secret else ""
+def page_gestionnaire(page: ft.Page, cle):
+    page.title = APP_NOM
+    page.window.width = FENETRE_LARGEUR_GESTIONNAIRE
+    page.window.height = FENETRE_HAUTEUR_GESTIONNAIRE
+    page.window.resizable = False
+    page.vertical_alignment = ft.MainAxisAlignment.START
+    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+    page.theme = ft.Theme(
+        font_family=POLICE_PRINCIPALE,
+        scrollbar_theme=ft.ScrollbarTheme(
+            thickness=SCROLL_EPAISSEUR,
+            radius=SCROLL_ARRONDI,
+            thumb_color=SCROLL_COULEUR,
+        )
     )
-    champ.pack(side="left",fill="x", expand=True, ipady=5)
 
-    if secret:
-        champ.visible = False
+    chemin_logo = os.path.join("assets", "logo.png")
 
-        def toggle():
-            if champ.visible:
-                champ.config(show="*")
-                btn_revealer.config(text="👁️")
-                champ.visible = False
+    if os.path.exists(chemin_logo):
+        logo = ft.Image(
+            src=chemin_logo,
+            width=LOGO_LARGEUR,
+            height=LOGO_HAUTEUR,
+        )
+    else:
+        logo = ft.Icon(ft.Icons.LOCK, color=LOGO_COULEUR, size=LOGO_LARGEUR)
+
+    def afficher_message(texte, couleur=COULEUR_SUCCES):
+        snackbar = ft.SnackBar(
+            content=ft.Text(
+                texte,
+                color=TEXTE_PRINCIPAL,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            bgcolor=couleur,
+            duration=3000,
+            behavior=ft.SnackBarBehavior.FLOATING,
+            shape=ft.RoundedRectangleBorder(radius=ARRONDI_CHAMP),
+            margin=ft.Margin(left=20, right=20, bottom=15),
+        )
+        page.overlay.append(snackbar)
+        snackbar.open = True
+        page.update()
+
+    def ouvrir_dialog(dlg):
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    def fermer_dialog(dlg):
+        dlg.open = False
+        page.update()
+
+    barre_haut = ft.Container(
+        content=ft.Row(
+            [
+                ft.Row(
+                    [
+                        logo,
+                        ft.Text(
+                            "Gestionnaire de mots de passe",
+                            size=TAILLE_NORMAL,
+                            weight=ft.FontWeight.BOLD,
+                            color=TEXTE_PRINCIPAL
+                        )
+                    ],
+                    spacing=10
+                ),
+                ft.Row(
+                    [
+                        ft.IconButton(
+                            ft.Icons.SETTINGS,
+                            icon_color=TEXTE_TERTIAIRE,
+                            tooltip="Paramètres",
+                            on_click=lambda e: ouvrir_parametres(),
+                        ),
+                        ft.IconButton(
+                            ft.Icons.LOGOUT,
+                            icon_color=COULEUR_DANGER,
+                            tooltip="Déconnexion",
+                            on_click=lambda e: se_deconnecter()
+                        ),
+                    ],
+                    spacing=0
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        ),
+        bgcolor=FOND_BARRE,
+        padding=ft.Padding(20, 20, 10, 10),
+        border_radius=ARRONDI_CHAMP,
+    )
+
+    def se_deconnecter():
+        page.floating_action_button = None
+        page.clean()
+        from connexion import page_connexion
+        page_connexion(page)
+
+    page.add(barre_haut)
+
+    champ_recherche = ft.TextField(
+        label="Rechercher un site",
+        border_radius=ARRONDI_CHAMP,
+        prefix_icon=ft.Icons.SEARCH,
+        filled=True,
+        bgcolor=FOND_CARTE,
+        color=TEXTE_PRINCIPAL,
+        border_color=TEXTE_TERTIAIRE,
+        label_style=ft.TextStyle(color=TEXTE_SECONDAIRE),
+        on_change=lambda e: charger_comptes()
+    )
+
+    btn_ajouter = ft.IconButton(
+        ft.Icons.ADD_CIRCLE,
+        icon_color=COULEUR_SUCCES,
+        tooltip="Ajouter un compte",
+        on_click=lambda e: ouvrir_ajout(e)
+    )
+
+    barre_recherche = ft.Row(
+        [
+            champ_recherche,
+            btn_ajouter
+        ],
+        spacing=10,
+        alignment=ft.MainAxisAlignment.CENTER
+    )
+
+    liste_comptes = ft.Column(
+        spacing=8,
+        expand=True,
+        scroll=ft.ScrollMode.ALWAYS
+    )
+
+    def charger_comptes():
+        liste_comptes.controls.clear()
+
+        comptes = recuperer_comptes()
+        recherche = champ_recherche.value.strip().lower() if champ_recherche.value else ""
+
+        resultats = []
+
+        for cle_compte, donnees in comptes.items():
+            site = donnees["site"]
+            identifiant = dechiffrer(donnees["identifiant"], cle)
+
+            if not recherche:
+                resultats.append((site, identifiant, cle_compte, 100))
+                continue
+
+            score = calculer_score(recherche, site)
+
+            if score > 0:
+                resultats.append((site, identifiant, cle_compte, score))
+
+        resultats.sort(key=lambda x: x[3], reverse=True)
+
+        for site, identifiant, cle_compte, score in resultats:
+            liste_comptes.controls.append(creer_carte(site, identifiant, cle_compte))
+
+        if len(liste_comptes.controls) == 0:
+            liste_comptes.controls.append(
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Icon(ft.Icons.SEARCH_OFF, size=50, color=TEXTE_SECONDAIRE),
+                            ft.Text(
+                                "Aucun compte enregistré" if not recherche else "Aucun résultat",
+                                size=TAILLE_NORMAL,
+                                color=TEXTE_SECONDAIRE
+                            ),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=10
+                    ),
+                    padding=40,
+                    alignment=ft.Alignment(0, 0)
+                )
+            )
+
+        page.update()
+
+    def creer_carte(site, identifiant, cle_compte):
+        texte_mdp = ft.Text(
+            "**********",
+            size=TAILLE_CARTE_TEXTE,
+            color=TEXTE_SECONDAIRE
+        )
+
+        btn_oeil = ft.IconButton(
+            ft.Icons.VISIBILITY,
+            icon_color=TEXTE_SECONDAIRE,
+            tooltip="Afficher le mot de passe",
+        )
+
+        def toggle_mdp(e):
+            if texte_mdp.value == "**********":
+                comptes = recuperer_comptes()
+                mdp_clair = dechiffrer(comptes[cle_compte]["mot_de_passe"], cle)
+                texte_mdp.value = mdp_clair
+                btn_oeil.icon = ft.Icons.VISIBILITY_OFF
+                btn_oeil.tooltip = "Masquer le mot de passe"
             else:
-                champ.config(show="")
-                btn_revealer.config(text="🙈")
-                champ.visible = True
-        btn_revealer = tk.Button(
-            frame_champ,
-            text="👁️",
-            bg="#2e7d32",
-            fg="white",
-            bd=0,
-            cursor="hand2",
-            command=toggle
+                texte_mdp.value = "**********"
+                btn_oeil.icon = ft.Icons.VISIBILITY
+                btn_oeil.tooltip = "Afficher le mot de passe"
+            page.update()
+
+        btn_oeil.on_click = toggle_mdp
+
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Column(
+                        [
+                            ft.Text(
+                                site,
+                                size=TAILLE_NORMAL,
+                                weight=ft.FontWeight.BOLD,
+                                color=TEXTE_PRINCIPAL
+                            ),
+                            ft.Row(
+                                [
+                                    ft.Icon(
+                                        ft.Icons.PERSON,
+                                        size=TAILLE_NORMAL,
+                                        color=COULEUR_PRIMAIRE
+                                    ),
+                                    ft.Text(
+                                        identifiant,
+                                        size=TAILLE_PETIT,
+                                        color=TEXTE_SECONDAIRE
+                                    )
+                                ],
+                                spacing=5
+                            ),
+                            ft.Row(
+                                [
+                                    ft.Icon(ft.Icons.KEY, size=TAILLE_NORMAL, color=TEXTE_SECONDAIRE),
+                                    texte_mdp
+                                ],
+                                spacing=5
+                            )
+                        ],
+                        spacing=2,
+                        expand=True
+                    ),
+                    ft.Row(
+                        [
+                            btn_oeil,
+                            ft.IconButton(
+                                ft.Icons.COPY,
+                                icon_color=TEXTE_SECONDAIRE,
+                                tooltip="Copier le mot de passe",
+                                on_click=lambda e, c=cle_compte: copier_mdp(c)
+                            ),
+                            ft.IconButton(
+                                ft.Icons.MODE,
+                                icon_color=COULEUR_SUCCES,
+                                tooltip="Modifier le compte",
+                                on_click=lambda e, c=cle_compte: modifier_compte(c)
+                            ),
+                            ft.IconButton(
+                                ft.Icons.DELETE,
+                                icon_color=COULEUR_DANGER,
+                                tooltip="Supprimer le compte",
+                                on_click=lambda e, c=cle_compte: confirmer_suppression(c)
+                            )
+                        ],
+                        spacing=0
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ),
+            bgcolor=FOND_BARRE,
+            border_radius=ARRONDI_CARTE,
+            padding=15,
         )
-        btn_revealer.pack(side="right", padx=(5, 0))
 
-    if generable:
-        def generer():
-            from utils.generateur import generer_mdp
-            mdp = generer_mdp()
-            champ.delete(0, tk.END)
-            champ.insert(0, mdp)
-
-            if secret and not champ.visible:
-                toggle()
-
-        btn_generer = tk.Button(
-            frame_champ,
-            text="🎲",
-            bg="#2e7d32",
-            fg="white",
-            bd=0,
-            cursor="hand2",
-            command=generer
+    def ouvrir_ajout(e):
+        champ_site = ft.TextField(
+            label="Site",
+            prefix_icon=ft.Icons.LANGUAGE,
+            border_radius=ARRONDI_CHAMP
         )
-        btn_generer.pack(side="right", padx=(0, 5))
 
-    return champ
-
-class FenetreGestionnaire:
-    def __init__(self, cle):
-        self.cle = cle
-        self.fenetre = tk.Tk()
-        self.fenetre.title("Gestionnaire de mot de passe")
-        self.fenetre.geometry("700x500")
-        self.fenetre.configure(bg="#1a1ae2")
-
-        self.creer_widgets()
-        self.charger_comptes()
-
-    def creer_widgets(self):
-        # === BARRE DU HAUT ===
-        frame_haut = tk.Frame(
-            self.fenetre,
-            bg="#16213e",
-            pady=15
+        champ_id = ft.TextField(
+            label="Identifiant",
+            prefix_icon=ft.Icons.PERSON,
+            border_radius=ARRONDI_CHAMP
         )
-        frame_haut.pack(fill="x")
+
+        champ_mdp = ft.TextField(
+            label="mot de passe",
+            password=True,
+            can_reveal_password=True,
+            prefix_icon=ft.Icons.LOCK,
+            border_radius=ARRONDI_CHAMP
+        )
         
-        tk.Label(
-            frame_haut,
-            text="Gestionnaire de mot de passe",
-            font=("Helvetica", 16, "bold"),
-            bg="#16213e",
-            fg="white"
-        ).pack()
+        def sauver(e):
+            site = champ_site.value.strip().lower()
+            identifiant = champ_id.value.strip()
+            mdp = champ_mdp.value.strip()
 
-        # === BARRE DE RECHERCHE ===
-        frame_recherche = tk.Frame(
-            self.fenetre,
-            bg="#1a1ae2",
-            pady=10
-        )
-        frame_recherche.pack(fill="x", padx=20)
-
-        self.champ_recherche = tk.Entry(
-            frame_recherche,
-            font=("Helvetica", 12),
-            bg="#16213e",
-            fg="white",
-            insertbackground="white",
-            bd=8,
-            relief="flat"
-        )
-        self.champ_recherche.pack(fill="x", ipady=5)
-        self.champ_recherche.bind("<KeyRelease>", self.rechercher_comptes)
-
-        # === LISTE DES COMPTES ===
-        frame_liste = tk.Frame(self.fenetre, bg="#1a1a2e")
-        frame_liste.pack(fill="both", expand=True, padx=20, pady=10)
-
-        # Définir les colonnes
-        colonnes = ("site", "identifiant", "mot_de_passe", "copier")
-
-        self.tableau = ttk.Treeview(
-            frame_liste,
-            columns=colonnes,
-            show="headings",
-            height=10
-        )
-
-        # Nommer les colonnes
-        self.tableau.heading("site", text="🌐 Site")
-        self.tableau.heading("identifiant", text="👤 Identifiant")
-        self.tableau.heading("mot_de_passe", text="🔐 Mot de passe")
-        self.tableau.heading("copier", text="")
-
-        # Définir la largeur
-        self.tableau.column("site", width=200, anchor="center")
-        self.tableau.column("identifiant", width=200, anchor="center")
-        self.tableau.column("mot_de_passe", width=200, anchor="center")
-        self.tableau.column("copier", width=50, anchor="center")
-
-        self.tableau.pack(fill="both", expand=True)
-        self.tableau.bind("<ButtonRelease-1>", self.clic_tableau)
-        self.tableau.bind("<Double-1>", self.modifier_compte)
-
-        # === BARRE DU BAS (BOUTONS) ===
-        frame_bas = tk.Frame(self.fenetre, bg="#1a1a2e", pady=10)
-        frame_bas.pack(fill="x", padx=20)
-
-        # Bouton Ajouter
-        self.btn_ajouter = tk.Button(
-            frame_bas,
-            text="➕ Ajouter un compte",
-            font=("Helvetica", 12, "bold"),
-            bg="#16213e",
-            fg="white",
-            bd=0,
-            cursor="hand2",
-            command=self.ajouter_compte
-        )
-        self.btn_ajouter.pack(side="left", ipadx=15, ipady=5)
-
-        # Bouton Supprimer
-        self.btn_supprimer = tk.Button(
-            frame_bas,
-            text="❌ Supprimer",
-            font=("Helvetica", 12, "bold"),
-            bg="#e53935",
-            fg="white",
-            bd=0,
-            cursor="hand2",
-            command=self.supprimer_compte
-        )
-        self.btn_supprimer.pack(side="right", ipadx=15, ipady=5)
-
-    def ajouter_compte(self):
-        """Ouvre la fenêtre pour ajouter un compte"""
-        
-        # Créer la popup
-        self.popup = tk.Toplevel(self.fenetre)
-        self.popup.title("Ajouter un compte")
-        self.popup.geometry("400x400")
-        self.popup.resizable(False, False)
-        self.popup.configure(bg="#1a1ae2")
-        
-        # Empêche de cliquer sur la fenêtre principale
-        self.popup.grab_set()
-        self.popup.focus_set()
-
-        # Titre de la popup
-        tk.Label(
-            self.popup,
-            text="Ajouter un compte",
-            font=("Arial", 14, "bold"),
-            bg="#1a1ae2",
-            fg="white"
-        ).pack(pady=(15, 0))
-
-        # Formulaire
-        frame_form = tk.Frame(self.popup, bg="#1a1a2e")
-        frame_form.pack(fill="x", padx=30)
-
-        self.champ_site = creer_champ(frame_form, "🌐 Site")
-        self.champ_identifiant = creer_champ(frame_form, "👤 Identifiant")
-        self.champ_mot_de_passe = creer_champ(frame_form, "🔐 Mot de passe", secret=True, generable=True)
-
-        # Bouton Sauvegarder
-        btn_sauvegarder = tk.Button(
-            self.popup,
-            text="💾 Sauvegarder",
-            font=("Arial", 12, "bold"),
-            bg="#2e7d32",
-            fg="white",
-            relief="flat",
-            cursor="hand2",
-            command=self.sauvegarder_compte
-        )
-        btn_sauvegarder.pack(pady=20, ipadx=20, ipady=8)
-
-    def sauvegarder_compte(self):
-        """Chiffre et Sauvegarde le compte"""
-        
-        # Récupérer les valeurs
-        site = self.champ_site.get().strip().lower()
-        identifiant = self.champ_identifiant.get().strip()
-        mot_de_passe = self.champ_mot_de_passe.get().strip()
-
-        #Vérifier que tout est rempli
-        if not site or not identifiant or not mot_de_passe:
-            messagebox.showwarning("Attention", "Remplis tous les champs !")
-            return 
-
-        # Vérifier si le site existe déjà
-        if site_existe(site):
-            messagebox.showwarning("Attention", "Ce site existe déjà")
-            return
-
-        # Chiffrer les infos
-        identifiant_chiffre = chiffrer(identifiant, self.cle)
-        mot_de_passe_chiffre = chiffrer(mot_de_passe, self.cle)
-
-        # Sauvegarder
-        ajouter_compte_data(site, identifiant_chiffre, mot_de_passe_chiffre)
-
-        # Recharger la liste
-        self.charger_comptes()
-
-        # Fermer la popup
-        self.popup.destroy()
-
-        messagebox.showinfo("Succès", f"Compte pour '{site}' ajouté !")
-
-    def charger_comptes(self):
-        """Charge et affiche tous les comptes"""
-        
-        # Effacer le contenu actuel du tableau
-        for item in self.tableau.get_children():
-            self.tableau.delete(item)
-
-        # Récupérer tous les comptes
-        comptes = recuperer_comptes()
-
-        # Remplir le tableau
-        for site, data in comptes.items():
-            identifiant = dechiffrer(data["identifiant"], self.cle)
-            self.tableau.insert("", "end", values=(site, identifiant, "********", "📋"))
-        
-
-    def supprimer_compte(self):
-        """Supprime le compte sélectionné dasn le tableau"""
-        
-        # 1. Récupérer le site sélectionné
-        selection = self.tableau.selection()
-        if not selection:
-            messagebox.showwarning(
-                "Attention",
-                "Veuillez sélectionner un compte à supprimer."
-            )
-            return
-
-        # 2. Obtenir le site
-        site = self.tableau.item(selection[0])["values"][0]
-
-        # 3. Confirmer
-        if messagebox.askyesno(
-            "Confirmation",
-            f"Voulez-vous vraiment supprimer {site} ?"
-        ):
+            if not site or not identifiant or not mdp:
+                afficher_message("Remplis tous les champs !", COULEUR_DANGER)
+                return
+            cle_compte = generer_cle_compte(site, identifiant)
+            if compte_existe(cle_compte):
+                afficher_message(f"{identifiant} sur {site} existe déjà !", COULEUR_DANGER)
+                return
             
-            # 4. Supprimer
-            supprimer_donnees_compte(site)
-            self.charger_comptes()
-            messagebox.showinfo(
-                "Succès",
-                f"Compte '{site}' supprimé avec succès"
-            )
-        else:
-            messagebox.showinfo(
-                "Annulé",
-                "Suppression annulée."
-            )
+            id_chiffre = chiffrer(identifiant, cle)
+            mdp_chiffre = chiffrer(mdp, cle)
+            ajouter_compte_data(site, id_chiffre, mdp_chiffre, cle_compte)
 
-    def rechercher_comptes(self, event=None):
-        """Recherche les comptes en fonction du texte entré"""
-        
-        # Récupérer le texte recherché
-        terme = self.champ_recherche.get().strip().lower()
+            fermer_dialog(dlg)
+            charger_comptes()
+            afficher_message(f"{identifiant} sur {site} a été ajouté !", COULEUR_SUCCES)
 
-        # Si le terme est vide, afficher tous les comptes
-        if not terme:
-            self.charger_comptes()
-            return
-
-        # Vider le tableau
-        for item in self.tableau.get_children():
-            self.tableau.delete(item)
-
-        # Récupérer tous les comptes
-        comptes = recuperer_comptes()
-
-        # Remplir le tableau avec les comptes correspondants
-        for site, data in comptes.items():
-            identifiant = dechiffrer(data["identifiant"], self.cle)
-            if terme in site.lower() or terme in identifiant.lower():
-                self.tableau.insert("", "end", values=(site, identifiant, "********", "📋"))
-
-    def copier_mdp(self):
-        """Copie le mot de passe sélectionné dans le presse-papiers"""
-        
-        # 1. Récupérer le site sélectionné
-        selection = self.tableau.selection()
-        if not selection:
-            return
-
-        # 2. Obtenir le site
-        site = self.tableau.item(selection[0])["values"][0]
-
-        # 3. Récupérer les données du compte
-        comptes = recuperer_comptes()
-        mot_de_passe = dechiffrer(comptes[site]["mot_de_passe"], self.cle)
-
-        # 4. Copier le mot de passe dans le presse-papiers
-        self.fenetre.clipboard_clear()
-        self.fenetre.clipboard_append(mot_de_passe)
-        
-        # 5. Changer le texte temporairement
-        self.tableau.set(selection[0], "copier", "✅")
-        self.fenetre.after(2000, lambda: self.tableau.set(selection[0], "copier", "📋"))
-
-    def clic_tableau(self, event):
-        """Gère les clics dans le tableau"""
-        
-        # Récupérer la colonne cliquée
-        colonne = self.tableau.identify_column(event.x)
-        
-        # Si la colonne "#4" (copier mdp) est cliquée
-        if colonne == "#4":
-            self.copier_mdp()
-
-    def modifier_compte(self, event=None):
-        """Modifie un compte existant"""
-        
-        # 1. Récupérer le site sélectionné
-        selection = self.tableau.selection()
-        if not selection:
-            return
-
-        # 2. Obtenir le site
-        site = self.tableau.item(selection[0])["values"][0]
-
-        # 3. Récupérer les données du compte
-        comptes = recuperer_comptes()
-        identifiant = dechiffrer(comptes[site]["identifiant"], self.cle)
-        mot_de_passe = dechiffrer(comptes[site]["mot_de_passe"], self.cle)
-
-        # 4. Ouvrir la popup
-        self.popup = tk.Toplevel(self.fenetre)
-        self.popup.title("Modifier le compte")
-        self.popup.geometry("400x400")
-        self.popup.resizable(False, False)
-        self.popup.configure(bg="#1a1ae2")
-        self.popup.grab_set()
-        self.popup.focus_set()
-
-        # 5. Titre de la popup
-        tk.Label(
-            self.popup,
-            text="Modifier le compte",
-            font=("Arial", 14, "bold"),
-            bg="#1a1ae2",
-            fg="white"
-        ).pack(pady=(15, 0))
-
-        # 6. Formulaire
-        frame_form = tk.Frame(self.popup, bg="#1a1a2e")
-        frame_form.pack(fill="x", padx=30)
-
-        self.champ_site = creer_champ(frame_form, "🌐 Site")
-        self.champ_identifiant = creer_champ(frame_form, "👤 Identifiant")
-        self.champ_mot_de_passe = creer_champ(frame_form, "🔐 Mot de passe", secret=True, generable=True)
-
-        # Remplir avec les données actuelles
-        self.champ_site.insert(0, site)
-        self.champ_identifiant.insert(0, identifiant)
-        self.champ_mot_de_passe.insert(0, mot_de_passe)
-
-        # 7. Bouton Sauvegarder
-        btn_sauvegarder = tk.Button(
-            self.popup,
-            text="💾 Sauvegarder",
-            font=("Arial", 12, "bold"),
-            bg="#2e7d32",
-            fg="white",
-            relief="flat",
-            cursor="hand2",
-            command=lambda: self.sauvegarder_modification(site)
+        dlg = ft.AlertDialog(
+            title=ft.Text("Ajouter un compte"),
+            content=ft.Column(
+                [
+                    champ_site,
+                    champ_id,
+                    ft.Row(
+                        [
+                            champ_mdp,
+                            ft.IconButton(
+                                ft.Icons.CASINO,
+                                tooltip="Générer un mot de passe",
+                                on_click=lambda e: generer(champ_mdp)
+                            )
+                        ],
+                        spacing=5
+                    )
+                ],
+                spacing=10,
+                tight=True
+            ),
+            actions=[
+                ft.TextButton(
+                    "Annuler",
+                    on_click=lambda e: fermer_dialog(dlg)
+                ),
+                ft.ElevatedButton(
+                    "Sauvegarder",
+                    color=COULEUR_SUCCES,
+                    on_click=sauver
+                )
+            ],
         )
-        btn_sauvegarder.pack(pady=20, ipadx=20, ipady=8)
+        ouvrir_dialog(dlg)
 
-    def sauvegarder_modification(self, site_original):
-        """Sauvegarde la modification du compte"""
+    def copier_mdp(cle_compte):
+        comptes = recuperer_comptes()
+        mdp_clair = dechiffrer(comptes[cle_compte]["mot_de_passe"], cle)
+        pyperclip.copy(mdp_clair)
+        afficher_message("Mot de passe copié !", COULEUR_SUCCES)
+
+    def generer(champ_mdp):
+        champ_mdp.value = generer_mdp()
+        page.update()
+
+    def modifier_compte(cle_compte):
+        comptes = recuperer_comptes()
+        site = comptes[cle_compte]["site"]
+        identifiant = dechiffrer(comptes[cle_compte]["identifiant"], cle)
+        mdp = dechiffrer(comptes[cle_compte]["mot_de_passe"], cle)
         
-        # Récupérer les nouvelles valeurs
-        site = self.champ_site.get().strip().lower()
-        identifiant = self.champ_identifiant.get().strip()
-        mot_de_passe = self.champ_mot_de_passe.get().strip()
-
-        # Vérifier que tout est rempli
-        if not site or not identifiant or not mot_de_passe:
-            messagebox.showwarning("Attention", "Veuillez remplir tous les champs")
-            return
-
-        # Si le site a changé, vérifier qu'il n'existe pas déjà
-        if site != site_original and site_existe(site):
-            messagebox.showwarning("Attention", "Ce site existe déjà")
-            return
-
-        # Supprimer l'ancien compte si le site a changé
-        if site != site_original:
-            supprimer_donnees_compte(site_original)
-
-        # Chiffrer les nouvelles infos
-        identifiant_chiffre = chiffrer(identifiant, self.cle)
-        mot_de_passe_chiffre = chiffrer(mot_de_passe, self.cle)
-
-        # Ajouter ou mettre à jour le compte
-        ajouter_compte_data(site, identifiant_chiffre, mot_de_passe_chiffre)
-
-        # Recharger la liste
-        self.charger_comptes()
-
-        # Fermer la popup
-        self.popup.destroy()
-
-        messagebox.showinfo("Succès", f"Compte '{site}' modifié !")
-
-    def lancer_app(self):
-        """Lance l'application"""
-        self.fenetre.mainloop()
+        champ_site = ft.TextField(
+            label="Site",
+            value=site,
+            prefix_icon=ft.Icons.LANGUAGE,
+            border_radius=ARRONDI_CHAMP
+        )
         
+        champ_id = ft.TextField(
+            label="Identifiant",
+            value=identifiant,
+            prefix_icon=ft.Icons.PERSON,
+            border_radius=ARRONDI_CHAMP
+        )
+        
+        champ_mdp = ft.TextField(
+            label="Mot de passe",
+            value=mdp,
+            password=True,
+            can_reveal_password=True,
+            prefix_icon=ft.Icons.LOCK,
+            border_radius=ARRONDI_CHAMP
+        )
+
+        def sauver_modification(e):
+            nouveau_site = champ_site.value.strip().lower()
+            nouveau_id = champ_id.value.strip()
+            nouveau_mdp = champ_mdp.value.strip()
+
+            if not nouveau_site or not nouveau_id or not nouveau_mdp:
+                afficher_message("Remplis tous les champs !", COULEUR_DANGER)
+                return
+
+            nouvelle_cle = generer_cle_compte(nouveau_site, nouveau_id)
+            
+            if nouvelle_cle != cle_compte and compte_existe(nouvelle_cle):
+                afficher_message("Ce compte existe déjà !", COULEUR_DANGER)
+                return
+            
+            supprimer_donnees_compte(cle_compte)
+
+            id_chiffre = chiffrer(nouveau_id, cle)
+            mdp_chiffre = chiffrer(nouveau_mdp, cle)
+            ajouter_compte_data(nouveau_site, id_chiffre, mdp_chiffre, nouvelle_cle)
+
+            fermer_dialog(dlg)
+            charger_comptes()
+            afficher_message("Compte modifié avec succès !", COULEUR_SUCCES)
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Modifier le compte"),
+            content=ft.Column(
+                [
+                    champ_site,
+                    champ_id,
+                    ft.Row(
+                        [
+                            champ_mdp,
+                            ft.IconButton(
+                                ft.Icons.CASINO,
+                                tooltip="Générer un mot de passe",
+                                on_click=lambda e: generer(champ_mdp)
+                            ),
+                        ]
+                    ),
+                ],
+                spacing=10,
+                tight=True
+            ),
+            actions=[
+                ft.TextButton(
+                    "Annuler",
+                    on_click=lambda e: fermer_dialog(dlg)
+                ),
+                ft.ElevatedButton(
+                    "Sauvegarder",
+                    bgcolor=COULEUR_SUCCES,
+                    color=TEXTE_PRINCIPAL,
+                    on_click=sauver_modification
+                ),
+            ],
+        )
+
+        ouvrir_dialog(dlg)
+
+    def confirmer_suppression(cle_compte):
+        comptes = recuperer_comptes()
+        site = comptes[cle_compte]["site"]
+        identifiant = dechiffrer(comptes[cle_compte]["identifiant"], cle)
+        
+        dlg = ft.AlertDialog(
+            title=ft.Text("Supprimer ce compte ?"),
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(
+                                ft.Icons.WARNING,
+                                color=COULEUR_DANGER,
+                                size=40
+                            ),
+                            ft.Column(
+                                [
+                                    ft.Text(f"Site : {site}",
+                                    size=TAILLE_NORMAL,
+                                    weight=ft.FontWeight.BOLD
+                                    ),
+                                    ft.Text(
+                                        f"Identifiant : {identifiant}",
+                                        size=TAILLE_PETIT,
+                                        color=TEXTE_SECONDAIRE
+                                    ),
+                                ],
+                                spacing=2
+                            ),
+                        ],
+                        spacing=15
+                    ),
+                    ft.Text(
+                        "Cette action est irréversible.",
+                        size=TAILLE_PETIT,
+                        color=COULEUR_INFO
+                    ),
+                ],
+                spacing=15,
+                tight=True
+            ),
+            actions=[
+                ft.TextButton(
+                    "Annuler",
+                    on_click=lambda e: fermer_dialog(dlg),
+                ),
+                ft.ElevatedButton(
+                    "Confirmer suppression",
+                    bgcolor=COULEUR_DANGER,
+                    color=TEXTE_PRINCIPAL,
+                    on_click=lambda e: supprimer(cle_compte, dlg)
+                ),
+            ],
+        )
+        ouvrir_dialog(dlg)
+
+    def supprimer(cle_compte, dlg):
+        """Supprime réellement le compte"""
+        if supprimer_donnees_compte(cle_compte):
+            fermer_dialog(dlg)
+            charger_comptes()
+            afficher_message("Compte supprimé !", COULEUR_SUCCES)
+        else:
+            afficher_message("Erreur lors de la suppression", COULEUR_DANGER)
+
+    def ouvrir_parametres():
+        compteur = [5]
+        texte_bouton = ft.Text("Confirmer (5s)")
+        btn_confirmer = ft.ElevatedButton(
+            content=texte_bouton,
+            color=TEXTE_PRINCIPAL,
+            disabled=True,
+        )
+
+        decompte_lance = [False]
+        thread_id = [0]
+
+        message_reset = ft.Text(
+            "",
+            size=TAILLE_PETIT,
+            color=COULEUR_DANGER,
+            text_align=ft.TextAlign.CENTER,
+        )
+
+        def verifier_texte_reset(e):
+            texte = champ_confirmation.value.strip().upper()
+
+            def lancer_decompte(id_thread):
+                import asyncio
+
+                async def decompte():
+                    for i in range(5, 0, -1):
+                        if thread_id[0] != id_thread:
+                            return
+                        texte_bouton.value = f"Confirmer ({i}s)"
+                        texte_bouton.update()
+                        await asyncio.sleep(1)
+                        
+                    if thread_id[0] != id_thread:
+                        return
+                        
+                    btn_confirmer.disabled = False
+                    texte_bouton.value = "Confirmer"
+                    texte_bouton.update()
+                    btn_confirmer.bgcolor = COULEUR_DANGER
+                    btn_confirmer.on_click = lambda e: executer_reset()
+                    btn_confirmer.update()
+                    message_reset.value = "Cliquez sur Confirmer pour tout supprimer"
+                    message_reset.update()
+            
+                page.run_task(decompte)
+
+            if texte == "RESET TOTAL" and not decompte_lance[0]:
+                decompte_lance[0] = True
+                champ_confirmation.disabled = True
+                message_reset.value = "Réinitialisation dans 5 secondes..."
+                btn_confirmer.visible = True
+                texte_bouton.value = "Confirmer (5s)"
+                texte_bouton.update()
+                message_reset.update()
+                champ_confirmation.update()
+                btn_confirmer.update()
+                
+                thread_id[0] += 1
+                lancer_decompte(thread_id[0])
+
+        def executer_reset():
+            if reset_application():
+                fermer_dialog(dlg_reset)
+                page.floating_action_button = None
+                page.clean()
+                afficher_message("Réinitialisation réussie", COULEUR_SUCCES)
+                from connexion import page_connexion
+                page_connexion(page)
+            else:
+                message_reset.value = "Erreur lors de la réinitialisation"
+                message_reset.update()
+        
+        champ_confirmation = ft.TextField(
+            label="Tapez 'RESET TOTAL' pour confirmer",
+            border_radius=ARRONDI_CHAMP,
+            text_align=ft.TextAlign.CENTER,
+            on_change=verifier_texte_reset,
+        )
+
+        dlg_reset = ft.AlertDialog(
+            title=ft.Text(
+                "Réinitialisation totale",
+                color=COULEUR_DANGER,
+            ),
+            content=ft.Column(
+                [
+                    ft.Icon(
+                        ft.Icons.WARNING,
+                        color=COULEUR_DANGER,
+                        size=40
+                    ),
+                    ft.Text(
+                        "Réinitialisation totale de l'application",
+                        size=TAILLE_PETIT,
+                        color=COULEUR_DANGER,
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                    ft.Container(height=10),
+                    champ_confirmation,
+                    message_reset,
+                ],
+                spacing=10,
+                tight=True,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Annuler",
+                    on_click=lambda e: fermer_dialog(dlg_reset),
+                ),
+                btn_confirmer,
+            ],
+        )
+
+        dlg_params = ft.AlertDialog(
+            title=ft.Text("Paramètres"),
+            content=ft.Column(
+                [
+                    ft.Text("Application", size=TAILLE_NORMAL, weight=ft.FontWeight.BOLD),
+                    ft.Divider(),
+                    ft.ListTile(
+                        leading=ft.Icon(ft.Icons.DELETE_FOREVER, color=COULEUR_DANGER),
+                        title=ft.Text("Réinitialiser l'application"),
+                        subtitle=ft.Text(
+                            "Supprime tous les comptes et le mot de passe maître",
+                            size=TAILLE_PETIT,
+                            color=TEXTE_TERTIAIRE
+                        ),
+                        on_click=lambda e: ouvrir_reset(),
+                    ),
+                ],
+                spacing=5,
+                tight=True,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Fermer",
+                    on_click=lambda e: fermer_dialog(dlg_params)
+                ),
+            ],
+        )
+
+        def ouvrir_reset():
+            fermer_dialog(dlg_params)
+
+            thread_id[0] += 1
+            decompte_lance[0] = False
+            texte_bouton.value = "Confirmer (5s)"
+            btn_confirmer.disabled = True
+            btn_confirmer.on_click = None
+            champ_confirmation.value = ""
+            champ_confirmation.disabled = False
+            message_reset.value = ""
+            message_reset.color = COULEUR_DANGER
+
+            ouvrir_dialog(dlg_reset)
+
+        champ_confirmation.on_submit = verifier_texte_reset
+
+        ouvrir_dialog(dlg_params)
+            
+
+    page.add(
+        ft.Container(
+            content=ft.Column(
+                [
+                    barre_recherche,
+                    ft.Container(
+                        content=liste_comptes,
+                        expand=True,
+                        border_radius=ARRONDI_CARTE,
+                    ),
+                ],
+                spacing=15,
+                expand=True
+            ),
+            padding=20,
+            expand=True
+        ),
+    )
+    charger_comptes()

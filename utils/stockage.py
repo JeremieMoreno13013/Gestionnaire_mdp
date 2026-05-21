@@ -1,8 +1,8 @@
 import json
 import os
 
-# Chemin du fichier de stockage
-FICHIER = "data/coffre.json"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CHEMIN_DONNEES = os.path.join(BASE_DIR, "data", "coffre.json")
 
 def initialiser_coffre():
     """
@@ -11,7 +11,7 @@ def initialiser_coffre():
     """
 
     os.makedirs("data", exist_ok=True)
-    if not os.path.exists(FICHIER):
+    if not os.path.exists(CHEMIN_DONNEES):
         structure_vide = {
             "mdp_maitre": None,
             "comptes": {}
@@ -26,12 +26,12 @@ def initialiser_coffre():
 
 def charger() -> dict:
     """Charge les données du fichier json"""
-    with open(FICHIER, "r", encoding="utf-8") as f:
+    with open(CHEMIN_DONNEES, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def sauvegarder(donnees: dict):
     """Sauvegarde les données dans le fichier"""
-    with open(FICHIER, "w", encoding="utf-8") as f:
+    with open(CHEMIN_DONNEES, "w", encoding="utf-8") as f:
         json.dump(donnees, f, indent=4, ensure_ascii=False)
 
 def sauvegarder_mdp_maitre(hash_mdp: str):
@@ -48,28 +48,41 @@ def recuperer_comptes() -> dict:
     """Retourne tous les comptes enregistrés"""
     return charger()["comptes"]
 
-def ajouter_compte_data(site: str, identifiant_chiffre: str, mdp_chiffre: str):
+def ajouter_compte_data(site: str, identifiant_chiffre: str, mdp_chiffre: str, cle_compte):
     """Ajoute ou met à jour un compte"""
     donnees = charger()
-    donnees["comptes"][site] = {
+    donnees["comptes"][cle_compte] = {
+        "site" : site,
         "identifiant" : identifiant_chiffre,
         "mot_de_passe" : mdp_chiffre
     }
     sauvegarder(donnees)
 
-def supprimer_donnees_compte(site: str) -> bool:
+def supprimer_donnees_compte(cle_compte) -> bool:
     """
     Supprime un compte.
     Retourne True si le compte a été supprimé, False si introuvable.
     """
     donnees = charger()
-    if site not in donnees["comptes"]:
-        return False
-    del donnees["comptes"][site]
-    sauvegarder(donnees)
-    return True
+    if cle_compte in donnees["comptes"]:
+        del donnees["comptes"][cle_compte]
+        sauvegarder(donnees)
+        return True
+    return False
 
-def site_existe(site: str) -> bool:
+def compte_existe(cle_compte: str) -> bool:
     """Vérifie si un site existe"""
-    return site in recuperer_comptes()
+    return cle_compte in recuperer_comptes()
 
+def reset_application():
+   if os.path.exists(CHEMIN_DONNEES):
+      try:
+         os.remove(CHEMIN_DONNEES)
+         return True
+      except Exception:
+         return False
+   return True
+
+def generer_cle_compte(site, identifiant):
+    """ Crée une clé unique pour chaque compte"""
+    return f"{site}_{identifiant}".lower()
