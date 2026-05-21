@@ -14,6 +14,7 @@ from PIL import Image
 import pyperclip
 from utils.theme import *
 from utils.recherche import calculer_score
+from utils.paths import chemin_asset
 
 def page_gestionnaire(page: ft.Page, cle):
     page.title = APP_NOM
@@ -31,7 +32,7 @@ def page_gestionnaire(page: ft.Page, cle):
         )
     )
 
-    chemin_logo = os.path.join("assets", "logo.png")
+    chemin_logo = chemin_asset("logo.png")
 
     if os.path.exists(chemin_logo):
         logo = ft.Image(
@@ -43,6 +44,8 @@ def page_gestionnaire(page: ft.Page, cle):
         logo = ft.Icon(ft.Icons.LOCK, color=LOGO_COULEUR, size=LOGO_LARGEUR)
 
     def afficher_message(texte, couleur=COULEUR_SUCCES):
+        page.overlay.clear()
+        
         snackbar = ft.SnackBar(
             content=ft.Text(
                 texte,
@@ -109,7 +112,7 @@ def page_gestionnaire(page: ft.Page, cle):
     )
 
     def se_deconnecter():
-        page.floating_action_button = None
+        page.overlay.clear()
         page.clean()
         from connexion import page_connexion
         page_connexion(page)
@@ -530,7 +533,6 @@ def page_gestionnaire(page: ft.Page, cle):
         ouvrir_dialog(dlg)
 
     def supprimer(cle_compte, dlg):
-        """Supprime réellement le compte"""
         if supprimer_donnees_compte(cle_compte):
             fermer_dialog(dlg)
             charger_comptes()

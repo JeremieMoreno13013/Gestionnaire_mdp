@@ -2,7 +2,6 @@ import random
 import string
 
 def generer_mdp(longueur=16, avec_symboles=True):
-    """Génère un mot de passe aléatoire"""
     caracteres = string.ascii_letters + string.digits
 
     if avec_symboles:

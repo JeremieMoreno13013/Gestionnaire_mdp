@@ -2,6 +2,8 @@ import flet as ft
 from utils.theme import *
 from utils.crypto import hasher_mdp_maitre, generer_cle
 from utils.stockage import initialiser_coffre, sauvegarder_mdp_maitre, recuperer_mdp_maitre
+from utils.paths import chemin_asset
+import os
 
 def page_connexion(page: ft.Page):
     page.title = APP_NOM
@@ -14,8 +16,7 @@ def page_connexion(page: ft.Page):
 
     premiere_fois = initialiser_coffre()
 
-    import os
-    chemin_logo = os.path.join("assets", "logo.png")
+    chemin_logo = chemin_asset("logo.png")
 
     if os.path.exists(chemin_logo):
         logo = ft.Image(
