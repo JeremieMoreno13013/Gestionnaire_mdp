@@ -195,14 +195,12 @@ def _dialogue_integrite(page: ft.Page, statut: str):
     message = ft.Text(texte, size=TAILLE_PETIT, color=TEXTE_SECONDAIRE)
 
     def continuer_sans_restaurer(e):
-        dlg.open = False
-        page.update()
+        page.pop_dialog()
         _demarrer_apres_integrite(page)
 
     def restaurer(e):
         if restaurer_dernier_backup():
-            dlg.open = False
-            page.update()
+            page.pop_dialog()
             _demarrer_apres_integrite(page)
         else:
             message.value = "Échec de la restauration."
@@ -236,9 +234,7 @@ def _dialogue_integrite(page: ft.Page, statut: str):
         content=message,
         actions=actions,
     )
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    page.show_dialog(dlg)
 
 def page_connexion(page: ft.Page):
     page.title = APP_NOM

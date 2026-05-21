@@ -27,7 +27,6 @@ def _structure_vide() -> dict:
 
 def _assurer_dossier_data():
     os.makedirs(os.path.dirname(_chemin_donnees()), exist_ok=True)
-    proteger_dossier_data()
 
 def initialiser_coffre():
     chemin = _chemin_donnees()

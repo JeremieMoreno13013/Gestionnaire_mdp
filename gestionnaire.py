@@ -48,8 +48,6 @@ def page_gestionnaire(page: ft.Page, cle):
         logo = ft.Icon(ft.Icons.LOCK, color=LOGO_COULEUR, size=LOGO_LARGEUR)
 
     def afficher_message(texte, couleur=COULEUR_SUCCES):
-        page.overlay.clear()
-        
         snackbar = ft.SnackBar(
             content=ft.Text(
                 texte,
@@ -62,24 +60,24 @@ def page_gestionnaire(page: ft.Page, cle):
             shape=ft.RoundedRectangleBorder(radius=ARRONDI_CHAMP),
             margin=ft.Margin(left=20, right=20, bottom=15),
         )
-        page.overlay.append(snackbar)
-        snackbar.open = True
-        page.update()
+        page.show_dialog(snackbar)
 
     def ouvrir_dialog(dlg):
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        page.show_dialog(dlg)
 
-    def fermer_dialog(dlg):
-        dlg.open = False
-        page.update()
+    def fermer_dialog(dlg=None):
+        if page.pop_dialog() is None and dlg is not None:
+            dlg.open = False
+            if dlg in page.overlay:
+                page.overlay.remove(dlg)
+            page.update()
 
     def toucher_activite():
         derniere_activite[0] = time.time()
 
     def verrouiller_session():
-        page.overlay.clear()
+        while page.pop_dialog() is not None:
+            pass
         page.clean()
         from connexion import page_connexion
 

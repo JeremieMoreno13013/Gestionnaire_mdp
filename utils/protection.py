@@ -41,37 +41,9 @@ def _ecrire_desktop_ini() -> None:
         f.write(contenu)
     _attribuer_masque_windows(_FICHIER_DESKTOP_INI, cache=True, systeme=True)
 
-def restreindre_permissions_dossier() -> None:
-    if sys.platform != "win32" or not os.path.isdir(DOSSIER_DATA):
-        return
-
-    utilisateur = os.environ.get("USERNAME")
-    if not utilisateur:
-        return
-
-    import subprocess
-
-    try:
-        subprocess.run(
-            [
-                "icacls",
-                DOSSIER_DATA,
-                "/inheritance:r",
-                "/grant:r",
-                f"{utilisateur}:(OI)(CI)F",
-            ],
-            capture_output=True,
-            check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except Exception:
-        pass
-
 def proteger_dossier_data() -> None:
     if not os.path.isdir(DOSSIER_DATA):
         return
-
-    restreindre_permissions_dossier()
 
     if sys.platform == "win32":
         if not os.path.exists(_FICHIER_DESKTOP_INI):
@@ -94,9 +66,45 @@ def calculer_hash_fichier(chemin):
         contenu = f.read()
     return hashlib.sha256(contenu).hexdigest()
 
+
+def _rendre_ecrivable(chemin: str) -> None:
+    if not os.path.exists(chemin):
+        return
+    try:
+        os.chmod(chemin, 0o666)
+    except OSError:
+        pass
+    if sys.platform == "win32":
+        import ctypes
+
+        ctypes.windll.kernel32.SetFileAttributesW(chemin, 0x80)
+
+
 def sauvegarder_hash():
     hash_actuel = calculer_hash_fichier(FICHIER_PRINCIPAL)
-    if hash_actuel:
+    if not hash_actuel:
+        return
+
+    os.makedirs(DOSSIER_DATA, exist_ok=True)
+    tmp = FICHIER_HASH + ".tmp"
+    _rendre_ecrivable(FICHIER_HASH)
+
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(hash_actuel)
+        os.replace(tmp, FICHIER_HASH)
+    except OSError:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        _rendre_ecrivable(FICHIER_HASH)
+        if os.path.exists(FICHIER_HASH):
+            try:
+                os.remove(FICHIER_HASH)
+            except OSError:
+                pass
         with open(FICHIER_HASH, "w", encoding="utf-8") as f:
             f.write(hash_actuel)
 

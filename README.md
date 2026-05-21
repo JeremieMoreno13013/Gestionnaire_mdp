@@ -121,7 +121,7 @@ Le dossier `data/` est créé automatiquement au premier lancement. Les polices 
 ## Sécurité et données
 
 - Le mot de passe maître n’est **jamais** stocké en clair : dérivation PBKDF2-SHA256 (600 000 itérations) avec sel unique.
-- Les comptes (site, identifiant, mot de passe) sont chiffrés dans `coffre.json` (dossier `data/` masqué, permissions restreintes sous Windows, **exclu de Git**).
+- Les comptes (site, identifiant, mot de passe) sont chiffrés dans `coffre.json` (dossier `data/` masqué sous Windows, **exclu de Git**).
 - Sauvegardes automatiques dans `data/backups/`, contrôle d’intégrité au démarrage.
 - Verrouillage après 10 min d’inactivité ; limitation des tentatives de connexion.
 - **Sans le mot de passe maître, les données ne sont pas récupérables.** Minimum 12 caractères à la création.
