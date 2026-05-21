@@ -1,6 +1,11 @@
 import flet as ft
 from connexion import page_connexion
 from utils.theme import POLICE_PRINCIPALE, POLICE_BOLD
+import sys
+import os
+
+if getattr(sys, "frozen", False):
+    os.chdir(os.path.dirname(sys.executable))
 
 def main(page: ft.Page):
     page.fonts = {
