@@ -1,22 +1,26 @@
+import time
+import asyncio
 import flet as ft
-from utils.crypto import chiffrer, dechiffrer
+from utils.crypto import chiffrer
 from utils.stockage import (
     ajouter_compte_data,
     recuperer_comptes,
     supprimer_donnees_compte,
     compte_existe,
     reset_application,
-    generer_cle_compte
+    generer_cle_compte,
+    lire_compte,
 )
 from utils.generateur import generer_mdp
+from utils.presse_papiers import copier_temporaire
 import os
 from PIL import Image
-import pyperclip
 from utils.theme import *
 from utils.recherche import calculer_score
 from utils.paths import chemin_asset
 
 def page_gestionnaire(page: ft.Page, cle):
+    derniere_activite = [time.time()]
     page.title = APP_NOM
     page.window.width = FENETRE_LARGEUR_GESTIONNAIRE
     page.window.height = FENETRE_HAUTEUR_GESTIONNAIRE
@@ -71,6 +75,25 @@ def page_gestionnaire(page: ft.Page, cle):
         dlg.open = False
         page.update()
 
+    def toucher_activite():
+        derniere_activite[0] = time.time()
+
+    def verrouiller_session():
+        page.overlay.clear()
+        page.clean()
+        from connexion import page_connexion
+
+        page_connexion(page)
+
+    async def surveillance_verrouillage():
+        while True:
+            await asyncio.sleep(30)
+            if time.time() - derniere_activite[0] >= DELAI_VERROUILLAGE_SEC:
+                verrouiller_session()
+                break
+
+    page.run_task(surveillance_verrouillage)
+
     barre_haut = ft.Container(
         content=ft.Row(
             [
@@ -92,13 +115,19 @@ def page_gestionnaire(page: ft.Page, cle):
                             ft.Icons.SETTINGS,
                             icon_color=TEXTE_TERTIAIRE,
                             tooltip="Paramètres",
-                            on_click=lambda e: ouvrir_parametres(),
+                            on_click=lambda e: (toucher_activite(), ouvrir_parametres()),
+                        ),
+                        ft.IconButton(
+                            ft.Icons.LOCK,
+                            icon_color=TEXTE_TERTIAIRE,
+                            tooltip="Verrouiller",
+                            on_click=lambda e: (toucher_activite(), verrouiller_session()),
                         ),
                         ft.IconButton(
                             ft.Icons.LOGOUT,
                             icon_color=COULEUR_DANGER,
                             tooltip="Déconnexion",
-                            on_click=lambda e: se_deconnecter()
+                            on_click=lambda e: (toucher_activite(), se_deconnecter()),
                         ),
                     ],
                     spacing=0
@@ -112,10 +141,7 @@ def page_gestionnaire(page: ft.Page, cle):
     )
 
     def se_deconnecter():
-        page.overlay.clear()
-        page.clean()
-        from connexion import page_connexion
-        page_connexion(page)
+        verrouiller_session()
 
     page.add(barre_haut)
 
@@ -128,14 +154,14 @@ def page_gestionnaire(page: ft.Page, cle):
         color=TEXTE_PRINCIPAL,
         border_color=TEXTE_TERTIAIRE,
         label_style=ft.TextStyle(color=TEXTE_SECONDAIRE),
-        on_change=lambda e: charger_comptes()
+        on_change=lambda e: (toucher_activite(), charger_comptes()),
     )
 
     btn_ajouter = ft.IconButton(
         ft.Icons.ADD_CIRCLE,
         icon_color=COULEUR_SUCCES,
         tooltip="Ajouter un compte",
-        on_click=lambda e: ouvrir_ajout(e)
+        on_click=lambda e: (toucher_activite(), ouvrir_ajout(e)),
     )
 
     barre_recherche = ft.Row(
@@ -154,6 +180,7 @@ def page_gestionnaire(page: ft.Page, cle):
     )
 
     def charger_comptes():
+        toucher_activite()
         liste_comptes.controls.clear()
 
         comptes = recuperer_comptes()
@@ -162,8 +189,7 @@ def page_gestionnaire(page: ft.Page, cle):
         resultats = []
 
         for cle_compte, donnees in comptes.items():
-            site = donnees["site"]
-            identifiant = dechiffrer(donnees["identifiant"], cle)
+            site, identifiant, _ = lire_compte(donnees, cle)
 
             if not recherche:
                 resultats.append((site, identifiant, cle_compte, 100))
@@ -215,9 +241,10 @@ def page_gestionnaire(page: ft.Page, cle):
         )
 
         def toggle_mdp(e):
+            toucher_activite()
             if texte_mdp.value == "**********":
                 comptes = recuperer_comptes()
-                mdp_clair = dechiffrer(comptes[cle_compte]["mot_de_passe"], cle)
+                _, _, mdp_clair = lire_compte(comptes[cle_compte], cle)
                 texte_mdp.value = mdp_clair
                 btn_oeil.icon = ft.Icons.VISIBILITY_OFF
                 btn_oeil.tooltip = "Masquer le mot de passe"
@@ -332,9 +359,10 @@ def page_gestionnaire(page: ft.Page, cle):
                 afficher_message(f"{identifiant} sur {site} existe déjà !", COULEUR_DANGER)
                 return
             
+            site_chiffre = chiffrer(site, cle)
             id_chiffre = chiffrer(identifiant, cle)
             mdp_chiffre = chiffrer(mdp, cle)
-            ajouter_compte_data(site, id_chiffre, mdp_chiffre, cle_compte)
+            ajouter_compte_data(site_chiffre, id_chiffre, mdp_chiffre, cle_compte)
 
             fermer_dialog(dlg)
             charger_comptes()
@@ -376,20 +404,23 @@ def page_gestionnaire(page: ft.Page, cle):
         ouvrir_dialog(dlg)
 
     def copier_mdp(cle_compte):
+        toucher_activite()
         comptes = recuperer_comptes()
-        mdp_clair = dechiffrer(comptes[cle_compte]["mot_de_passe"], cle)
-        pyperclip.copy(mdp_clair)
-        afficher_message("Mot de passe copié !", COULEUR_SUCCES)
+        _, _, mdp_clair = lire_compte(comptes[cle_compte], cle)
+        copier_temporaire(mdp_clair, PRESSE_PAPIERS_DUREE_SEC)
+        afficher_message(
+            f"Mot de passe copié (effacé du presse-papiers dans {PRESSE_PAPIERS_DUREE_SEC} s)",
+            COULEUR_SUCCES,
+        )
 
     def generer(champ_mdp):
         champ_mdp.value = generer_mdp()
         page.update()
 
     def modifier_compte(cle_compte):
+        toucher_activite()
         comptes = recuperer_comptes()
-        site = comptes[cle_compte]["site"]
-        identifiant = dechiffrer(comptes[cle_compte]["identifiant"], cle)
-        mdp = dechiffrer(comptes[cle_compte]["mot_de_passe"], cle)
+        site, identifiant, mdp = lire_compte(comptes[cle_compte], cle)
         
         champ_site = ft.TextField(
             label="Site",
@@ -431,9 +462,10 @@ def page_gestionnaire(page: ft.Page, cle):
             
             supprimer_donnees_compte(cle_compte)
 
+            site_chiffre = chiffrer(nouveau_site, cle)
             id_chiffre = chiffrer(nouveau_id, cle)
             mdp_chiffre = chiffrer(nouveau_mdp, cle)
-            ajouter_compte_data(nouveau_site, id_chiffre, mdp_chiffre, nouvelle_cle)
+            ajouter_compte_data(site_chiffre, id_chiffre, mdp_chiffre, nouvelle_cle)
 
             fermer_dialog(dlg)
             charger_comptes()
@@ -476,9 +508,9 @@ def page_gestionnaire(page: ft.Page, cle):
         ouvrir_dialog(dlg)
 
     def confirmer_suppression(cle_compte):
+        toucher_activite()
         comptes = recuperer_comptes()
-        site = comptes[cle_compte]["site"]
-        identifiant = dechiffrer(comptes[cle_compte]["identifiant"], cle)
+        site, identifiant, _ = lire_compte(comptes[cle_compte], cle)
         
         dlg = ft.AlertDialog(
             title=ft.Text("Supprimer ce compte ?"),
