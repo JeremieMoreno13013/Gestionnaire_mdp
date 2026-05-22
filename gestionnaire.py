@@ -50,25 +50,81 @@ def page_gestionnaire(page: ft.Page, cle):
     else:
         logo = ft.Icon(ft.Icons.LOCK, color=LOGO_COULEUR, size=LOGO_LARGEUR)
 
+    banniere_message: list[ft.Container | None] = [None]
+    effacement_feedback: dict[int, ft.Text] = {}
+    feedbacks_dialogue: dict[int, ft.Text] = {}
+
+    def retirer_banniere_message():
+        banniere = banniere_message[0]
+        if banniere is None:
+            return
+        if banniere in page.overlay:
+            page.overlay.remove(banniere)
+        banniere_message[0] = None
+
+    def retirer_snackbars_dialog():
+        for dlg in list(page._dialogs.controls):
+            if isinstance(dlg, ft.SnackBar):
+                dlg.open = False
+                page._dialogs.controls.remove(dlg)
+        page._dialogs.update()
+
+    async def effacer_feedback_dialog(dlg_id, feedback):
+        await asyncio.sleep(3)
+        if effacement_feedback.get(dlg_id) is not feedback:
+            return
+        feedback.value = ""
+        page.update()
+
     def afficher_message(texte, couleur=COULEUR_SUCCES):
-        snackbar = ft.SnackBar(
+        for dlg in reversed(page._dialogs.controls):
+            if not dlg.open or not isinstance(dlg, ft.AlertDialog):
+                continue
+            feedback = feedbacks_dialogue.get(id(dlg))
+            if feedback is None:
+                continue
+            dlg_id = id(dlg)
+            effacement_feedback[dlg_id] = feedback
+            feedback.value = texte
+            feedback.color = couleur
+            page.update()
+            page.run_task(effacer_feedback_dialog, dlg_id, feedback)
+            return
+
+        retirer_snackbars_dialog()
+        retirer_banniere_message()
+        banniere = ft.Container(
             content=ft.Text(
                 texte,
                 color=TEXTE_PRINCIPAL,
                 text_align=ft.TextAlign.CENTER,
             ),
             bgcolor=couleur,
-            duration=3000,
-            behavior=ft.SnackBarBehavior.FLOATING,
-            shape=ft.RoundedRectangleBorder(radius=ARRONDI_CHAMP),
+            border_radius=ARRONDI_CHAMP,
+            padding=ft.Padding(16, 12, 16, 12),
             margin=ft.Margin(left=20, right=20, bottom=15),
+            alignment=ft.Alignment(0, 0),
         )
-        page.show_dialog(snackbar)
+        banniere_message[0] = banniere
+        page.overlay.append(banniere)
+        page.update()
+
+        async def masquer_banniere():
+            await asyncio.sleep(3)
+            if banniere_message[0] is banniere:
+                retirer_banniere_message()
+                page.update()
+
+        page.run_task(masquer_banniere)
 
     def ouvrir_dialog(dlg):
         page.show_dialog(dlg)
 
     def fermer_dialog(dlg=None):
+        if dlg is not None:
+            dlg_id = id(dlg)
+            feedbacks_dialogue.pop(dlg_id, None)
+            effacement_feedback.pop(dlg_id, None)
         if page.pop_dialog() is None and dlg is not None:
             dlg.open = False
             if dlg in page.overlay:
@@ -352,7 +408,13 @@ def page_gestionnaire(page: ft.Page, cle):
             prefix_icon=ft.Icons.LOCK,
             border_radius=ARRONDI_CHAMP
         )
-        
+
+        feedback_ajout = ft.Text(
+            "",
+            size=TAILLE_PETIT,
+            text_align=ft.TextAlign.CENTER,
+        )
+
         def sauver(e):
             site = champ_site.value.strip().lower()
             identifiant = champ_id.value.strip()
@@ -388,10 +450,17 @@ def page_gestionnaire(page: ft.Page, cle):
                                 ft.Icons.CASINO,
                                 tooltip="Générer un mot de passe",
                                 on_click=lambda e: generer(champ_mdp)
-                            )
+                            ),
+                            ft.IconButton(
+                                ft.Icons.COPY,
+                                icon_color=TEXTE_SECONDAIRE,
+                                tooltip="Copier le mot de passe",
+                                on_click=lambda e: copier_mdp_champ(champ_mdp.value)
+                            ),
                         ],
                         spacing=5
-                    )
+                    ),
+                    feedback_ajout,
                 ],
                 spacing=10,
                 tight=True
@@ -408,6 +477,7 @@ def page_gestionnaire(page: ft.Page, cle):
                 )
             ],
         )
+        feedbacks_dialogue[id(dlg)] = feedback_ajout
         ouvrir_dialog(dlg)
 
     def copier_mdp(cle_compte):
@@ -415,6 +485,18 @@ def page_gestionnaire(page: ft.Page, cle):
         comptes = recuperer_comptes()
         _, _, mdp_clair = lire_compte(comptes[cle_compte], cle)
         copier_temporaire(mdp_clair, PRESSE_PAPIERS_DUREE_SEC)
+        afficher_message(
+            f"Mot de passe copié (effacé du presse-papiers dans {PRESSE_PAPIERS_DUREE_SEC} s)",
+            COULEUR_SUCCES,
+        )
+
+    def copier_mdp_champ(mdp):
+        toucher_activite()
+        texte = (mdp or "").strip()
+        if not texte:
+            afficher_message("Remplis le champ mot de passe", COULEUR_DANGER)
+            return
+        copier_temporaire(texte, PRESSE_PAPIERS_DUREE_SEC)
         afficher_message(
             f"Mot de passe copié (effacé du presse-papiers dans {PRESSE_PAPIERS_DUREE_SEC} s)",
             COULEUR_SUCCES,
@@ -450,6 +532,12 @@ def page_gestionnaire(page: ft.Page, cle):
             can_reveal_password=True,
             prefix_icon=ft.Icons.LOCK,
             border_radius=ARRONDI_CHAMP
+        )
+
+        feedback_modif = ft.Text(
+            "",
+            size=TAILLE_PETIT,
+            text_align=ft.TextAlign.CENTER,
         )
 
         def sauver_modification(e):
@@ -492,8 +580,16 @@ def page_gestionnaire(page: ft.Page, cle):
                                 tooltip="Générer un mot de passe",
                                 on_click=lambda e: generer(champ_mdp)
                             ),
-                        ]
+                            ft.IconButton(
+                                ft.Icons.COPY,
+                                icon_color=TEXTE_SECONDAIRE,
+                                tooltip="Copier le mot de passe",
+                                on_click=lambda e: copier_mdp_champ(champ_mdp.value)
+                            ),
+                        ],
+                        spacing=5
                     ),
+                    feedback_modif,
                 ],
                 spacing=10,
                 tight=True
@@ -511,7 +607,7 @@ def page_gestionnaire(page: ft.Page, cle):
                 ),
             ],
         )
-
+        feedbacks_dialogue[id(dlg)] = feedback_modif
         ouvrir_dialog(dlg)
 
     def confirmer_suppression(cle_compte):
