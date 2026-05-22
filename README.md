@@ -1,128 +1,96 @@
 # Gestionnaire de mots de passe
 
-Application desktop de gestionnaire de mots de passe, développée en Python avec [Flet](https://flet.dev/). Les identifiants et mots de passe sont chiffrés localement ; seul un mot de passe maître permet d’ouvrir le coffre.
+Application desktop locale de gestion de mots de passe : chiffrement bout en bout, interface Flet, packaging Windows (exe + installeur). Projet personnel démontrant le développement Python orienté sécurité et produit.
 
-## Fonctionnalités
+## Aperçu
 
-- **Mot de passe maître** — création du coffre à la première utilisation, puis connexion sécurisée
-- **Chiffrement** — sites, identifiants et mots de passe chiffrés avec Fernet (clé PBKDF2-SHA256, 600 000 itérations + sel)
-- **Gestion des comptes** — ajouter, modifier (double-clic sur une carte), supprimer
-- **Recherche intelligente** — filtrage en temps réel avec score (correspondance exacte, préfixe, sous-chaîne), accents ignorés
-- **Générateur de mot de passe** — création aléatoire lors de l’ajout ou de la modification
-- **Copie rapide** — copie temporaire dans le presse-papiers (effacement automatique)
-- **Verrouillage** — déconnexion automatique après inactivité, bouton Verrouiller
-- **Intégrité** — détection de modification du coffre, restauration depuis sauvegarde
-- **Affichage masqué** — révéler ou masquer le mot de passe sur chaque carte
-- **Paramètres** — réinitialisation totale du coffre (confirmation `RESET TOTAL` + délai de sécurité)
-- **Interface** — thème sombre, police Intel One Mono, messages via SnackBar
+L’utilisateur crée un coffre protégé par un mot de passe maître, puis gère ses comptes (site, identifiant, mot de passe) dans une interface sobre. Aucune donnée sensible n’est stockée en clair ; tout reste sur la machine de l’utilisateur.
 
-## Technologies
+## Compétences mises en avant
 
-| Composant | Usage |
-|-----------|--------|
-| [Flet](https://flet.dev/) | Interface graphique |
-| [cryptography](https://pypi.org/project/cryptography/) | Chiffrement Fernet |
-| [pyperclip](https://pypi.org/project/pyperclip/) | Copie dans le presse-papiers |
-| [Pillow](https://pypi.org/project/Pillow/) | Traitement d’images (logo) |
-| [PyInstaller](https://pyinstaller.org/) | Compilation en exécutable Windows (optionnel) |
+| Domaine | Réalisation |
+|---------|-------------|
+| **Sécurité** | PBKDF2-SHA256 (600 k itérations), Fernet, sel unique, limitation des tentatives de connexion, contrôle d’intégrité, sauvegardes rotatives |
+| **Desktop Python** | UI Flet (async), fenêtrage, icônes, gestion des transitions connexion ↔ gestionnaire |
+| **Architecture** | Séparation `connexion` / `gestionnaire` / `utils`, chemins adaptés dev / exe / installation |
+| **Packaging Windows** | `flet pack` (PyInstaller), métadonnées exe, client Flet embarqué, Inno Setup 6 |
+| **Qualité** | Typage (Pyright), venv projet, scripts de build reproductibles |
 
-## Structure du projet
+## Stack technique
+
+- **Python 3.10+** · **Flet 0.85** · **cryptography** (Fernet) · **Pillow** · **pyperclip**
+- **PyInstaller** via `flet pack` · **Inno Setup** (installeur)
+- Cible principale : **Windows** (dev possible sur Linux/macOS)
+
+## Fonctionnalités livrées
+
+- Création et connexion au coffre (mot de passe maître fort, 12 caractères min.)
+- CRUD comptes avec recherche floue (scores, normalisation accents)
+- Générateur de mots de passe, copie presse-papiers à durée limitée
+- Verrouillage automatique (inactivité) et manuel
+- Détection d’altération du fichier coffre + restauration backup
+- Réinitialisation complète avec garde-fous (`RESET TOTAL`, délai)
+- Thème UI cohérent (constantes centralisées, polices embarquées)
+
+## Architecture
 
 ```
-Gestionnaire_mdp/
-├── main.py              # Point d’entrée, thème et polices
-├── connexion.py         # Écran de connexion / création du coffre
-├── gestionnaire.py      # Interface principale (liste, CRUD, paramètres)
-├── requirements.txt     # Dépendances Python
-├── assets/
-│   ├── fonts/           # Intel One Mono
-│   └── logo.png         # Optionnel (icône cadenas par défaut si absent)
-├── utils/
-│   ├── crypto.py            # Chiffrement et hash du mot de passe maître
-│   ├── stockage.py          # Persistance JSON
-│   ├── paths.py             # Chemins (projet, .exe, bundle PyInstaller)
-│   ├── generateur.py        # Génération de mots de passe
-│   ├── recherche.py         # Normalisation et score de recherche
-│   └── theme.py             # Couleurs, tailles, constantes UI
-└── data/                    # Données locales (ignoré par Git)
-    └── coffre.json
+main.py
+   └── connexion.py          # Auth, intégrité, premier lancement
+           └── gestionnaire.py   # UI principale, async (surveillance session)
+
+utils/
+   crypto.py          # Dérivation clé, chiffrement, migration v1 → v2
+   stockage.py        # JSON atomique, coffre structuré
+   paths.py           # Résolution chemins selon contexte d’exécution
+   protection.py      # Backups, hash d’intégrité, attributs Windows
+   fenetre.py         # Dimensions, centrage natif Windows
+   win_taskbar.py     # AppUserModelID, client Flet embarqué (exe packagé)
+   connexion_securite.py
+   recherche.py · generateur.py · presse_papiers.py · theme.py
 ```
 
-## Prérequis
+**Choix notables**
 
-- **Python 3.10+** recommandé (testé avec Flet 0.85)
-- Windows, macOS ou Linux (exécutable `.exe` : Windows uniquement)
+- **Données hors Program Files** : si l’app est installée sous `Program Files`, le coffre est redirigé vers `%LOCALAPPDATA%` (écriture utilisateur sans admin).
+- **Exe autonome** : le client Flet est extrait du bundle PyInstaller (`.flet_runtime/`), pas le cache global `~/.flet`, pour un comportement reproductible en production.
+- **UI non bloquante** : transitions de fenêtre et chargement via `page.run_task` + `async` (Flet).
 
-## Installation
+## Sécurité (résumé)
+
+- Mot de passe maître : hash PBKDF2, jamais persisté en clair
+- Payload comptes : chiffré Fernet avec clé dérivée du maître
+- Sauvegardes dans `data/backups/`, vérification au démarrage
+- Dossier `data/` exclu de Git et masqué sous Windows
+
+## Démarrage rapide (développeurs)
 
 ```bash
-git clone https://github.com/VOTRE_UTILISATEUR/Gestionnaire_mdp.git
+git clone <url-du-repo>
 cd Gestionnaire_mdp
-python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-# macOS / Linux
-source .venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-Sous Windows, si `python` n’est pas reconnu, utilisez `py` à la place :
-
-```bash
 py -m venv .venv
-py -m pip install -r requirements.txt
-```
-
-## Lancement (Python)
-
-```bash
-python main.py
-```
-
-Ou avec `py` :
-
-```bash
+.venv\Scripts\activate
+pip install -r requirements.txt "flet[all]>=0.85.0"
 py main.py
 ```
 
-### Mode développement (rechargement automatique)
+Rechargement à chaud : `flet run -r main.py`
 
-```bash
-flet run -r main.py
+## Build release (Windows)
+
+| Script | Sortie |
+|--------|--------|
+| `scripts\build_windows.bat` | `dist\GestionnaireMotsDePasse.exe` (portable) |
+| `scripts\build_installer.bat` | `dist\GestionnaireMotsDePasse-Setup.exe` (Inno Setup 6 requis) |
+
+Icône : `py scripts\generer_logo_ico.py` (intégré aux scripts de build).
+
+## Structure du dépôt
+
 ```
-
-Les modifications dans `connexion.py`, `gestionnaire.py` et `utils/` sont prises en compte à chaque sauvegarde.
-
-## Exécutable Windows (.exe)
-
-Pour générer l’application en fichier unique :
-
-```bash
-pip install pyinstaller
-pyinstaller PasswordManager.spec
+├── main.py · connexion.py · gestionnaire.py
+├── assets/          # Polices, logo.ico / logo.png
+├── installer/       # GestionnaireMotsDePasse.iss
+├── scripts/         # Build & génération icône
+└── utils/           # Logique métier et plateforme
 ```
-
-L’exécutable est créé dans `dist/PasswordManager.exe`.
-
-### Où sont stockées les données ?
-
-| Mode | Emplacement de `coffre.json` |
-|------|------------------------------|
-| Python (`main.py`) | `data/coffre.json` à la racine du projet |
-| `.exe` PyInstaller | `data/coffre.json` **à côté de** `PasswordManager.exe` |
-
-Le dossier `data/` est créé automatiquement au premier lancement. Les polices et le logo sont lus depuis le bundle PyInstaller (`assets` inclus via le fichier `.spec`).
-
-> **Important :** ne supprimez pas le dossier `data/` à côté de l’`.exe` si vous souhaitez conserver vos mots de passe.
-
-## Sécurité et données
-
-- Le mot de passe maître n’est **jamais** stocké en clair : dérivation PBKDF2-SHA256 (600 000 itérations) avec sel unique.
-- Les comptes (site, identifiant, mot de passe) sont chiffrés dans `coffre.json` (dossier `data/` masqué sous Windows, **exclu de Git**).
-- Sauvegardes automatiques dans `data/backups/`, contrôle d’intégrité au démarrage.
-- Verrouillage après 10 min d’inactivité ; limitation des tentatives de connexion.
-- **Sans le mot de passe maître, les données ne sont pas récupérables.** Minimum 12 caractères à la création.
-- Ne partagez pas `data/` sur un dépôt public. Les coffres v1 (ancien SHA-256) sont migrés automatiquement à la première connexion.

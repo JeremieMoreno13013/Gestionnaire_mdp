@@ -1,5 +1,8 @@
+.venv/
+.flet_runtime/
 data/
 dist/
+installer/Output/
 build/
 __pycache__/
 *.spec

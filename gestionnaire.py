@@ -18,13 +18,16 @@ from PIL import Image
 from utils.theme import *
 from utils.recherche import calculer_score
 from utils.paths import chemin_asset
+from utils.fenetre import (
+    appliquer_taille_et_centrer,
+    appliquer_taille_gestionnaire,
+    configurer_fenetre,
+)
 
 def page_gestionnaire(page: ft.Page, cle):
     derniere_activite = [time.time()]
     page.title = APP_NOM
-    page.window.width = FENETRE_LARGEUR_GESTIONNAIRE
-    page.window.height = FENETRE_HAUTEUR_GESTIONNAIRE
-    page.window.resizable = False
+    configurer_fenetre(page)
     page.vertical_alignment = ft.MainAxisAlignment.START
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.theme = ft.Theme(
@@ -78,10 +81,16 @@ def page_gestionnaire(page: ft.Page, cle):
     def verrouiller_session():
         while page.pop_dialog() is not None:
             pass
-        page.clean()
         from connexion import page_connexion
+        from utils.fenetre import appliquer_taille_connexion
 
-        page_connexion(page)
+        async def transition():
+            page.window.visible = False
+            await appliquer_taille_et_centrer(page, appliquer_taille_connexion)
+            page.clean()
+            page_connexion(page)
+
+        page.run_task(transition)
 
     async def surveillance_verrouillage():
         while True:
@@ -750,4 +759,12 @@ def page_gestionnaire(page: ft.Page, cle):
             expand=True
         ),
     )
+    page.update()
     charger_comptes()
+
+    async def finaliser_affichage():
+        await appliquer_taille_et_centrer(page, appliquer_taille_gestionnaire)
+        page.window.visible = True
+        page.update()
+
+    page.run_task(finaliser_affichage)

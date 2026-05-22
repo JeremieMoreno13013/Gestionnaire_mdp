@@ -7,6 +7,7 @@ from utils.stockage import (
     verifier_mdp_maitre,
 )
 from utils.paths import chemin_asset
+from utils.fenetre import appliquer_taille_connexion, configurer_fenetre
 from utils.protection import (
     verifier_integrite,
     restaurer_dernier_backup,
@@ -83,10 +84,16 @@ def _construire_interface(page: ft.Page, premiere_fois: bool):
         page.update()
 
     def ouvrir_gestionnaire(cle):
-        page.clean()
         from gestionnaire import page_gestionnaire
+        from utils.fenetre import appliquer_taille_et_centrer, appliquer_taille_gestionnaire
 
-        page_gestionnaire(page, cle)
+        async def transition():
+            page.window.visible = False
+            await appliquer_taille_et_centrer(page, appliquer_taille_gestionnaire)
+            page.clean()
+            page_gestionnaire(page, cle)
+
+        page.run_task(transition)
 
     def valider(e):
         if connexion_bloquee():
@@ -207,7 +214,9 @@ def _dialogue_integrite(page: ft.Page, statut: str):
             message.color = COULEUR_DANGER
             page.update()
 
-    actions = [ft.TextButton("Continuer sans restaurer", on_click=continuer_sans_restaurer)]
+    actions: list[ft.Control] = [
+        ft.TextButton("Continuer sans restaurer", on_click=continuer_sans_restaurer)
+    ]
     if peut_restaurer:
         actions.insert(
             0,
@@ -239,15 +248,16 @@ def _dialogue_integrite(page: ft.Page, statut: str):
 def page_connexion(page: ft.Page):
     page.title = APP_NOM
     page.bgcolor = FOND_PAGE
-    page.window.width = FENETRE_LARGEUR_CONNEXION
-    page.window.height = FENETRE_HAUTEUR_CONNEXION
-    page.window.resizable = False
+    configurer_fenetre(page)
+    appliquer_taille_connexion(page)
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
 
     statut = verifier_integrite()
     if statut in ("modifie", "corrompu"):
         _dialogue_integrite(page, statut)
-        return
+    else:
+        _demarrer_apres_integrite(page)
 
-    _demarrer_apres_integrite(page)
+    page.window.visible = True
+    page.update()
